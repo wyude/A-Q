@@ -6,12 +6,24 @@
 ####3.选择颜色监控位置
 ####4.running…………………………
 
+
+##############################
+##运行html/test.bat  打开服务
+##打开系统默认浏览器  调整放好一个不碍事的位置 又能滚动
+##运行python程序
+##
+##
+
 import urllib as url
 import string
 import re
 import json
 import time
 import cv2
+import re
+import webbrowser
+import math
+import os
 from aip import AipOcr  
 from PIL import ImageGrab
 from pymouse import PyMouse
@@ -26,6 +38,8 @@ class NiuBiLe:
         # 初始化AipFace对象  
         self.aipOcr = AipOcr(APP_ID, API_KEY, SECRET_KEY)  
         self.SCREENSHOT_PATH = 'screenshot/screen.png'
+        self.HTML_PATH = 'html/index.html'
+        self.browser='http://localhost:8080'
         self.worddict={}
         self.word=''
         self.options = {'detect_direction': 'true', 'language_type': 'CHN_ENG',} 
@@ -34,7 +48,10 @@ class NiuBiLe:
         self.colorPos=[]
         self.color=[250,250,250]
         self.colorL=list(map(lambda x:x-10,self.color))
-
+        self.bigNum=[u'零',u'一',u'二',u'三',u'四',u'五',u'六',u'七',u'八',u'九']
+        self.unit=[u'',u'十',u'百',u'千']
+        self.bigUint=[u'',u'万',u'亿',u'万亿',u'亿亿']
+        
     def getPos(self):
         #在这里获取截图范围，鼠标点击或者识图
         #还有判断题目是否出现的颜色位置
@@ -57,7 +74,7 @@ class NiuBiLe:
             self.snap()
             img=cv2.imread(self.SCREENSHOT_PATH)#读图片为narray
             color=img[self.colorPos[0],self.colorPos[1]]
-            print(color)
+            #print(color)
             if( color[0]>=self.colorL[0] and color[1]>=self.colorL[1] and color[2]>=self.colorL[2] ):
                 return True
             else:
@@ -75,10 +92,57 @@ class NiuBiLe:
 
     def baidu_search(self,keyword):
         p= {'wd': keyword}
-        print(keyword)
+        #print(keyword)
         res=url.request.urlopen("http://www.baidu.com/s?"+url.parse.urlencode(p))
         html=res.read()
+        localhtml=html.decode('utf-8')
+        localFile=open(self.HTML_PATH,"w+",encoding='utf-8')
+        localFile.write(localhtml)
+        localFile.close()
+        webbrowser.open(self.browser)#打开网页放在这里合适么？
         return html 
+    def Section2Chinese(section):
+        section=int(section)
+        strIns=''
+        chnStr=''
+        uniPos=0
+        zero=True
+        while(section>0):
+            v=section%10
+            if(0==v):
+                if(not zero):
+                    zero=True
+                    chnStr=self.bigNum[v]+chnStr
+            else:
+                zero=False
+                strIns=self.bigNum[v]
+                strIns+=self.unit[uniPos]
+                chnStr=strIns+chnStr
+            uniPos+=1
+            section=math.floor(section/10)
+        return chnStr
+
+    def num2Chinese(self,num):
+        unitPos=0
+        strIns=''
+        chnStr=''
+        needZero=False
+        if(0==int(num)):
+            return self.bigNum[0]
+        while(int(num)>0):
+            section=int(num)%10000
+            if(needZero):
+                chnStr=self.bigNum[0]+chnStr
+            strIns=Section2Chinese(section)
+            if(section!=0):
+                strIns+=self.bigUint[unitPos]
+            else:
+                strIns+=self.bigUint[0]
+            chnStr=strIns+chnStr
+            needZero=(section<1000) and (section>0)
+            num=math.floor(int(num)/10000)
+            unitPos+=1
+        return chnStr
 
     def getWords(self,input):
         self.worddict={}
@@ -87,20 +151,46 @@ class NiuBiLe:
         num = text.get('words_result_num')
         wordArr = text.get('words_result')
         for i in range(num):
-            print(wordArr[i])
+            #print(wordArr[i])
             if(i<num-3):
                 self.word= self.word+wordArr[i]['words']
             else:
                 #TODO 判断是否需要去除字母
                 keystr=wordArr[i]['words']
-                if(keystr.startswith('A') or keystr.startswith('B') or keystr.startswith('C') or 
-                keystr.startswith('a') or keystr.startswith('b') or keystr.startswith('c') or
-                keystr.startswith('1') or keystr.startswith('2') or keystr.startswith('3')):
-                    self.worddict[keystr[2:]] =0
+                fontW=re.compile('(\w\.)(.+)')#匹配是否A.answer这种
+                ww=fontW.findall(keystr)
+                if(0==len(ww)):#不是A.answer这种
+                    keynum=re.compile('^\d+$')#匹配纯数字
+                    nums=keynum.findall(keystr)
+                    if(0==len(nums)):#非纯数字
+                        #替换一下特殊字符
+                        rr=re.compile('-|·')
+                        newStr=rr.sub('',keystr)
+                        self.worddict[keystr] =0
+                        self.worddict[newStr] =0
+                    else:#纯数字
+                        #数字转汉字
+                        strNum=self.num2Chinese(keystr)
+                        self.worddict[keystr] =0
+                        self.worddict[strNum] =0
                 else:
-                    self.worddict[keystr] =0
+                    keystr=ww[0][1] #去掉选项前缀
+                    keynum=re.compile('^\d+$')#匹配纯数字
+                    nums=keynum.findall(keystr)
+                    if(0==len(nums)):#非纯数字
+                        #替换一下特殊字符
+                        rr=re.compile('-|·')
+                        newStr=rr.sub('',keystr)
+                        self.worddict[keystr] =0
+                        self.worddict[newStr] =0
+                    else:#纯数字
+                        #数字转汉字
+                        strNum=self.num2Chinese(keystr)
+                        self.worddict[keystr] =0
+                        self.worddict[strNum] =0
+        delOrder=re.compile('^\d+[\.](.+)')
+        self.word=delOrder.findall(self.word)[0]
         print(self.word)
-        
         context = self.baidu_search(self.word.encode('utf8'))
         #print (context.count('比奇堡'))
         for i in self.worddict:
