@@ -133,7 +133,7 @@ class NiuBiLe:
             section=int(num)%10000
             if(needZero):
                 chnStr=self.bigNum[0]+chnStr
-            strIns=Section2Chinese(section)
+            strIns=self.Section2Chinese(section)
             if(section!=0):
                 strIns+=self.bigUint[unitPos]
             else:
